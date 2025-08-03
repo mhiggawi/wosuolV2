@@ -22,7 +22,6 @@ $texts = [
         'name_label' => 'الاسم الكريم:',
         'phone_label' => 'رقم الجوال (مع رمز الدولة):',
         'guests_count_label' => 'عدد الضيوف (شاملاً لك):',
-        'assigned_location_label' => 'الموقع المخصص:',
         'confirm_attendance' => 'تأكيد الحضور',
         'decline_attendance' => 'الاعتذار عن الحضور',
         'select_country' => 'اختر الدولة',
@@ -40,8 +39,6 @@ $texts = [
         'event_time' => 'موعد الحفل',
         'get_directions' => 'الحصول على الاتجاهات',
         'view_on_map' => 'عرض على الخريطة',
-        'powered_by' => 'مدعوم من',
-        'all_rights_reserved' => 'جميع الحقوق محفوظة',
         'countries' => [
             '+962' => 'الأردن (+962)',
             '+966' => 'السعودية (+966)', 
@@ -68,7 +65,6 @@ $texts = [
         'name_label' => 'Full Name:',
         'phone_label' => 'Mobile Number (with country code):',
         'guests_count_label' => 'Number of Guests (including you):',
-        'assigned_location_label' => 'Assigned Location:',
         'confirm_attendance' => 'Confirm Attendance',
         'decline_attendance' => 'Decline Attendance',
         'select_country' => 'Select Country',
@@ -86,8 +82,6 @@ $texts = [
         'event_time' => 'Event Time',
         'get_directions' => 'Get Directions',
         'view_on_map' => 'View on Map',
-        'powered_by' => 'Powered by',
-        'all_rights_reserved' => 'All Rights Reserved',
         'countries' => [
             '+962' => 'Jordan (+962)',
             '+966' => 'Saudi Arabia (+966)', 
@@ -177,14 +171,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['switch_language'])) 
             $guests_count = filter_input(INPUT_POST, 'guests_count', FILTER_VALIDATE_INT, [
                 'options' => ['min_range' => 1, 'max_range' => 20]
             ]) ?: 1;
-            $assigned_location = trim($_POST['assigned_location'] ?? '');
             $status = in_array($_POST['rsvp_status'] ?? '', ['confirmed', 'canceled']) ? $_POST['rsvp_status'] : 'canceled';
 
             if (empty($name_ar) || empty($country_code) || empty($phone_number_raw)) {
                 $message = $t['fill_all_fields'];
                 $messageType = 'error';
             } else {
-                // Phone Number Validation Logic
+                // Phone Number Validation Logic (same as before)
                 $is_valid = false;
                 $error_message = '';
 
@@ -238,9 +231,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['switch_language'])) 
                             // Insert new guest
                             $guest_id = substr(md5(uniqid($phone_number_normalized . microtime(), true)), 0, 4);
                             
-                            $stmt = $mysqli->prepare("INSERT INTO guests (event_id, guest_id, name_ar, phone_number, guests_count, assigned_location, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                            $stmt = $mysqli->prepare("INSERT INTO guests (event_id, guest_id, name_ar, phone_number, guests_count, status) VALUES (?, ?, ?, ?, ?, ?)");
                             if ($stmt) {
-                                $stmt->bind_param("isssiss", $event_id, $guest_id, $name_ar, $phone_number_normalized, $guests_count, $assigned_location, $status);
+                                $stmt->bind_param("isssis", $event_id, $guest_id, $name_ar, $phone_number_normalized, $guests_count, $status);
                                 
                                 if ($stmt->execute()) {
                                     $registration_successful = true;
@@ -316,7 +309,6 @@ $mysqli->close();
             background: white; 
             min-height: 100vh;
             display: flex; 
-            flex-direction: column;
             justify-content: center; 
             align-items: center; 
             padding: 20px;
@@ -554,62 +546,6 @@ $mysqli->close();
             z-index: 10000;
         }
         
-        .footer-brand {
-            margin-top: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border-radius: 15px;
-            text-align: center;
-            border: 1px solid rgba(229, 231, 235, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
-        
-        .wosuol-logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            text-decoration: none;
-            color: #2563eb;
-            font-weight: bold;
-        }
-        
-        .wosuol-icon {
-            width: 45px;
-            height: 45px;
-            background: #4f46e5;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 1.2rem;
-            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
-        }
-        
-        .wosuol-text {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        
-        .wosuol-title {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #1e40af;
-            line-height: 1.2;
-        }
-        
-        .wosuol-subtitle {
-            font-size: 0.7rem;
-            color: #6b7280;
-            font-weight: 400;
-            line-height: 1.2;
-        }
-        
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -632,21 +568,6 @@ $mysqli->close();
             .phone-input-container select,
             .phone-input-container input {
                 flex: none;
-            }
-            
-            .footer-brand {
-                flex-direction: column;
-                gap: 10px;
-            }
-            
-            .wosuol-logo {
-                font-size: 1rem;
-            }
-            
-            .wosuol-icon {
-                width: 35px;
-                height: 35px;
-                font-size: 1rem;
             }
         }
     </style>
@@ -768,16 +689,6 @@ $mysqli->close();
                                value="<?= safe_html($_POST['guests_count'] ?? '1') ?>" min="1" max="20" required>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="assigned_location">
-                            <i class="fas fa-map-marker-alt text-blue-600"></i>
-                            <?= $t['assigned_location_label'] ?>
-                        </label>
-                        <input type="text" id="assigned_location" name="assigned_location" 
-                               value="<?= safe_html($_POST['assigned_location'] ?? '') ?>"
-                               placeholder="مثال: الطابق الأول - الصالة الشرقية">
-                    </div>
-                    
                     <div class="action-buttons">
                         <button type="submit" onclick="document.getElementById('rsvp_status').value='confirmed';" 
                                 class="btn-confirm">
@@ -792,22 +703,6 @@ $mysqli->close();
                     </div>
                 </form>
             <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Footer with Wosuol Branding -->
-    <div class="footer-brand">
-        <a href="https://wosuol.com" target="_blank" class="wosuol-logo">
-            <div class="wosuol-icon">
-                <i class="fas fa-calendar-check"></i>
-            </div>
-            <div class="wosuol-text">
-                <div class="wosuol-title">وصول</div>
-                <div class="wosuol-subtitle">نظام إدارة الفعاليات والدعوات</div>
-            </div>
-        </a>
-        <div style="color: #6b7280; font-size: 0.8rem;">
-            © 2025 <?= $t['all_rights_reserved'] ?>
         </div>
     </div>
 
