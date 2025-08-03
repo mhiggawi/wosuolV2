@@ -1,84 +1,16 @@
 <?php
-// rsvp.php - محسّن مع خلفية بيضاء وتقويم ديناميكي وصلاحية محددة
+// rsvp.php - محسّن مع خلفية بيضاء وتقويم ديناميكي
 error_reporting(E_ALL & ~E_DEPRECATED);
 ini_set('display_errors', 1);
 
 session_start();
 require_once 'db_config.php';
+require_once 'languages.php'; // استخدام ملف اللغات المنفصل
 
 // --- Language System ---
-$lang = $_SESSION['language'] ?? $_COOKIE['language'] ?? 'ar';
-if (isset($_POST['switch_language'])) {
-    $lang = $_POST['switch_language'] === 'en' ? 'en' : 'ar';
-    $_SESSION['language'] = $lang;
-    setcookie('language', $lang, time() + (365 * 24 * 60 * 60), '/');
-    header("Location: " . $_SERVER['REQUEST_URI']);
-    exit;
-}
-
-// Language texts
-$texts = [
-    'ar' => [
-        'invalid_link' => 'رابط غير صالح أو منتهي الصلاحية',
-        'welcome_guest' => 'أهلاً وسهلاً',
-        'dear_guest' => 'ضيفنا الكريم',
-        'guest_count' => 'عدد الضيوف',
-        'table_number' => 'رقم الطاولة',
-        'view_location' => 'عرض الموقع',
-        'confirm_attendance' => 'تأكيد الحضور',
-        'decline_attendance' => 'الاعتذار عن الحضور',
-        'add_to_calendar' => 'إضافة للتقويم',
-        'share_invitation' => 'مشاركة الدعوة',
-        'get_directions' => 'الحصول على الاتجاهات',
-        'entry_card' => 'بطاقة الدخول',
-        'qr_code' => 'رمز QR للدخول',
-        'show_at_entrance' => 'أظهر هذا الرمز عند المدخل',
-        'download_qr' => 'تحميل رمز QR',
-        'already_confirmed' => 'تم تأكيد حضورك مسبقاً',
-        'already_declined' => 'تم تسجيل اعتذارك مسبقاً',
-        'success_confirmed' => 'تم تأكيد حضورك بنجاح!',
-        'success_declined' => 'تم تسجيل اعتذارك',
-        'error_occurred' => 'حدث خطأ، يرجى المحاولة مرة أخرى',
-        'connection_error' => 'خطأ في الاتصال',
-        'csrf_error' => 'خطأ أمني، يرجى إعادة تحميل الصفحة',
-        'rate_limit_error' => 'تم إرسال طلبات كثيرة، يرجى الانتظار',
-        'powered_by' => 'مدعوم من',
-        'all_rights_reserved' => 'جميع الحقوق محفوظة',
-        'link_expired' => 'انتهت صلاحية الرابط (الصلاحية: 30 يوماً من تاريخ الإنشاء)',
-        'assigned_location' => 'الموقع المخصص'
-    ],
-    'en' => [
-        'invalid_link' => 'Invalid or expired link',
-        'welcome_guest' => 'Welcome',
-        'dear_guest' => 'Dear Guest',
-        'guest_count' => 'Guest Count',
-        'table_number' => 'Table Number',
-        'view_location' => 'View Location',
-        'confirm_attendance' => 'Confirm Attendance',
-        'decline_attendance' => 'Decline Attendance',
-        'add_to_calendar' => 'Add to Calendar',
-        'share_invitation' => 'Share Invitation',
-        'get_directions' => 'Get Directions',
-        'entry_card' => 'Entry Card',
-        'qr_code' => 'QR Code for Entry',
-        'show_at_entrance' => 'Show this code at entrance',
-        'download_qr' => 'Download QR Code',
-        'already_confirmed' => 'Your attendance has been confirmed',
-        'already_declined' => 'Your decline has been recorded',
-        'success_confirmed' => 'Your attendance confirmed successfully!',
-        'success_declined' => 'Your decline recorded',
-        'error_occurred' => 'An error occurred, please try again',
-        'connection_error' => 'Connection error',
-        'csrf_error' => 'Security error, please reload the page',
-        'rate_limit_error' => 'Too many requests, please wait',
-        'powered_by' => 'Powered by',
-        'all_rights_reserved' => 'All Rights Reserved',
-        'link_expired' => 'Link has expired (Validity: 30 days from creation)',
-        'assigned_location' => 'Assigned Location'
-    ]
-];
-
-$t = $texts[$lang];
+handleLanguageSwitch();
+$lang = getCurrentLanguage();
+$t = getPageTexts('rsvp', $lang);
 
 // --- CSRF Protection ---
 if (empty($_SESSION['csrf_token'])) {
@@ -108,12 +40,10 @@ $is_rate_limited = $_SESSION[$rate_limit_key]['count'] >= 10;
 if (empty($guest_id)) {
     $error_message = $t['invalid_link'];
 } else {
-    // Fetch guest data with prepared statements and check expiry (30 days)
+    // Fetch guest data with prepared statements
     $sql_guest = "SELECT g.*, e.* FROM guests g 
                   JOIN events e ON g.event_id = e.id 
-                  WHERE g.guest_id = ? 
-                  AND g.created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
-                  LIMIT 1";
+                  WHERE g.guest_id = ? LIMIT 1";
     
     if ($stmt_guest = $mysqli->prepare($sql_guest)) {
         $stmt_guest->bind_param("s", $guest_id);
@@ -131,10 +61,8 @@ if (empty($guest_id)) {
                 'phone_number' => $combined_data['phone_number'],
                 'guests_count' => $combined_data['guests_count'],
                 'table_number' => $combined_data['table_number'],
-                'assigned_location' => $combined_data['assigned_location'],
                 'status' => $combined_data['status'],
-                'checkin_status' => $combined_data['checkin_status'],
-                'created_at' => $combined_data['created_at']
+                'checkin_status' => $combined_data['checkin_status']
             ];
             
             $event_data = [
@@ -154,7 +82,7 @@ if (empty($guest_id)) {
                 'n8n_confirm_webhook' => $combined_data['n8n_confirm_webhook']
             ];
         } else {
-            $error_message = $t['link_expired'];
+            $error_message = $t['invalid_link'];
         }
         $stmt_guest->close();
     }
@@ -284,10 +212,6 @@ function generateCalendarData($event_data, $lang) {
     ];
 }
 
-function safeHtml($value, $default = '') {
-    return htmlspecialchars($value ?? $default, ENT_QUOTES, 'UTF-8');
-}
-
 $calendar_data = generateCalendarData($event_data, $lang);
 
 $mysqli->close();
@@ -320,7 +244,6 @@ $mysqli->close();
             background: white; /* خلفية بيضاء */
             min-height: 100vh;
             display: flex; 
-            flex-direction: column;
             justify-content: center; 
             align-items: center; 
             padding: 20px;
@@ -655,62 +578,6 @@ $mysqli->close();
             z-index: 10000;
         }
         
-        .footer-brand {
-            margin-top: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border-radius: 15px;
-            text-align: center;
-            border: 1px solid rgba(229, 231, 235, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
-        
-        .wosuol-logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            text-decoration: none;
-            color: #2563eb;
-            font-weight: bold;
-        }
-        
-        .wosuol-icon {
-            width: 45px;
-            height: 45px;
-            background: #4f46e5;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 1.2rem;
-            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
-        }
-        
-        .wosuol-text {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        
-        .wosuol-title {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #1e40af;
-            line-height: 1.2;
-        }
-        
-        .wosuol-subtitle {
-            font-size: 0.7rem;
-            color: #6b7280;
-            font-weight: 400;
-            line-height: 1.2;
-        }
-        
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -742,21 +609,6 @@ $mysqli->close();
             .qr-code-container {
                 grid-column: 1 / 2;
             }
-            
-            .footer-brand {
-                flex-direction: column;
-                gap: 10px;
-            }
-            
-            .wosuol-logo {
-                font-size: 1rem;
-            }
-            
-            .wosuol-icon {
-                width: 35px;
-                height: 35px;
-                font-size: 1rem;
-            }
         }
     </style>
 </head>
@@ -764,12 +616,7 @@ $mysqli->close();
     <div class="card-container">
         <!-- Language Toggle -->
         <div class="language-toggle">
-            <form method="POST" style="display: inline;">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
-                <button type="submit" name="switch_language" value="<?= $lang === 'ar' ? 'en' : 'ar' ?>">
-                    <?= $lang === 'ar' ? 'English' : 'العربية' ?>
-                </button>
-            </form>
+            <?= getLanguageToggleButton($lang, $_SESSION['csrf_token']) ?>
         </div>
 
         <?php if (!empty($error_message)): ?>
@@ -779,15 +626,6 @@ $mysqli->close();
                 </div>
                 <h2 class="text-2xl font-bold text-gray-800 mb-4"><?= $t['invalid_link'] ?></h2>
                 <p class="text-lg text-gray-600"><?= htmlspecialchars($error_message) ?></p>
-                
-                <?php if (strpos($error_message, 'انتهت صلاحية') !== false): ?>
-                    <div class="mt-4 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
-                        <p class="text-yellow-800 text-sm">
-                            <i class="fas fa-info-circle"></i>
-                            صلاحية روابط RSVP: <strong>30 يوماً</strong> من تاريخ الإنشاء
-                        </p>
-                    </div>
-                <?php endif; ?>
             </div>
         <?php else: ?>
             
@@ -810,6 +648,7 @@ $mysqli->close();
                 <!-- Guest Welcome Section -->
                 <div class="guest-welcome">
                     <h2 class="text-xl font-bold text-blue-800 mb-2">
+                        
                         <?= $t['welcome_guest'] ?>
                     </h2>
                     <p class="text-lg font-semibold text-blue-700">
@@ -834,16 +673,6 @@ $mysqli->close();
                             <?= $t['table_number'] ?>
                         </div>
                         <div class="detail-value"><?= safeHtml($guest_data['table_number']) ?></div>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <?php if (!empty($guest_data['assigned_location'])): ?>
-                    <div class="detail-item">
-                        <div class="detail-label">
-                            <i class="fas fa-map-marker-alt"></i>
-                            <?= $t['assigned_location'] ?>
-                        </div>
-                        <div class="detail-value"><?= safeHtml($guest_data['assigned_location']) ?></div>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -934,7 +763,7 @@ $mysqli->close();
                             <div class="text-2xl font-bold text-gray-800"><?= safeHtml($guest_data['guests_count'] ?? '1') ?></div>
                         </div>
                         <div class="text-xs text-gray-600 mt-4">
-                            <?= safeHtml($event_data['qr_brand_text_ar'] ?? 'وصول') ?>
+                            <?= safeHtml($event_data['qr_brand_text_ar'] ?? 'دعواتي') ?>
                         </div>
                     </div>
                     
@@ -945,7 +774,7 @@ $mysqli->close();
                             <?= safeHtml($event_data['qr_show_code_instruction_ar'] ?? $t['show_at_entrance']) ?>
                         </p>
                         <div class="text-xs text-gray-600">
-                            <?= safeHtml($event_data['qr_website'] ?? 'wosuol.com') ?>
+                            <?= safeHtml($event_data['qr_website'] ?? 'dawwaty.com') ?>
                         </div>
                     </div>
                 </div>
@@ -965,22 +794,6 @@ $mysqli->close();
             </div>
 
         <?php endif; ?>
-    </div>
-
-    <!-- Footer with Wosuol Branding -->
-    <div class="footer-brand">
-        <a href="https://wosuol.com" target="_blank" class="wosuol-logo">
-            <div class="wosuol-icon">
-                <i class="fas fa-calendar-check"></i>
-            </div>
-            <div class="wosuol-text">
-                <div class="wosuol-title">وصول</div>
-                <div class="wosuol-subtitle">نظام إدارة الفعاليات والدعوات</div>
-            </div>
-        </a>
-        <div style="color: #6b7280; font-size: 0.8rem;">
-            © 2025 <?= $t['all_rights_reserved'] ?>
-        </div>
     </div>
 
     <!-- Image Modal for full screen view -->
@@ -1122,189 +935,10 @@ $mysqli->close();
             }
         }
 
-        // Rest of the JavaScript functions remain the same...
-        // [Calendar, sharing, toast functions - keeping them as they were]
-
-        // Show toast notification
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            const toastMessage = document.getElementById('toast-message');
-            
-            toastMessage.textContent = message;
-            toast.className = `toast ${type === 'error' ? 'error' : ''}`;
-            toast.classList.add('show');
-            
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
-        }
-
-        // Image handling functions
-        function toggleImageView(img) {
-            const modal = document.getElementById('imageModal');
-            const modalImg = document.getElementById('modalImage');
-            
-            modalImg.src = img.src;
-            modal.classList.add('active');
-            
-            // Prevent body scroll
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeImageModal() {
-            const modal = document.getElementById('imageModal');
-            modal.classList.remove('active');
-            
-            // Restore body scroll
-            document.body.style.overflow = 'auto';
-        }
-
-        // Enhanced Dynamic Calendar Function
-        function addToCalendar() {
-            const calendarData = CONFIG.calendarData;
-            const eventData = CONFIG.eventData;
-            
-            const title = encodeURIComponent(eventData.event_name || 'Event');
-            const location = encodeURIComponent(eventData.venue_ar || '');
-            const details = encodeURIComponent(eventData.event_paragraph_ar || '');
-            
-            const startDate = calendarData.datetime;
-            const endDate = calendarData.end_datetime;
-            
-            const userAgent = navigator.userAgent;
-            const isIOS = /iPad|iPhone|iPod/.test(userAgent);
-            const isAndroid = /Android/.test(userAgent);
-            
-            const calendarOptions = {
-                google: `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDate}/${endDate}&details=${details}&location=${location}`,
-                outlook: `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${startDate}&enddt=${endDate}&body=${details}&location=${location}`,
-                yahoo: `https://calendar.yahoo.com/?v=60&view=d&type=20&title=${title}&st=${startDate}&et=${endDate}&desc=${details}&in_loc=${location}`,
-                ics: generateICSFile(eventData, calendarData)
-            };
-            
-            if (isIOS) {
-                const icsUrl = calendarOptions.ics;
-                if (icsUrl) {
-                    const link = document.createElement('a');
-                    link.href = icsUrl;
-                    link.download = 'invitation-event.ics';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    showToast('تم إنشاء ملف التقويم!', 'success');
-                } else {
-                    window.open(calendarOptions.google, '_blank');
-                }
-            } else if (isAndroid) {
-                window.open(calendarOptions.google, '_blank');
-            } else {
-                showCalendarOptions(calendarOptions);
-            }
-            
-            showToast('Opening calendar...', 'success');
-        }
-
-        function generateICSFile(eventData, calendarData) {
-            try {
-                const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-                const startDateTime = calendarData.datetime.replace(/[-:]/g, '') + 'Z';
-                const endDateTime = calendarData.end_datetime.replace(/[-:]/g, '') + 'Z';
-                
-                const icsContent = [
-                    'BEGIN:VCALENDAR',
-                    'VERSION:2.0',
-                    'PRODID:-//Wosuol//Event Invitation//EN',
-                    'BEGIN:VEVENT',
-                    `UID:${CONFIG.guestData.guest_id}@wosuol.com`,
-                    `DTSTAMP:${now}`,
-                    `DTSTART:${startDateTime}`,
-                    `DTEND:${endDateTime}`,
-                    `SUMMARY:${eventData.event_name || 'Event'}`,
-                    `DESCRIPTION:${eventData.event_paragraph_ar || 'دعوة خاصة'}`,
-                    `LOCATION:${eventData.venue_ar || ''}`,
-                    'STATUS:CONFIRMED',
-                    'END:VEVENT',
-                    'END:VCALENDAR'
-                ].join('\r\n');
-                
-                const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-                return URL.createObjectURL(blob);
-            } catch (error) {
-                console.error('ICS Generation Error:', error);
-                return null;
-            }
-        }
-
-        function showCalendarOptions(options) {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            modal.innerHTML = `
-                <div class="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
-                    <h3 class="text-lg font-bold mb-4 text-center">اختر التقويم</h3>
-                    <div class="space-y-2">
-                        <button onclick="window.open('${options.google}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600">
-                            Google Calendar
-                        </button>
-                        <button onclick="window.open('${options.outlook}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-blue-600 text-white rounded hover:bg-blue-700">
-                            Outlook Calendar
-                        </button>
-                        <button onclick="window.open('${options.yahoo}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-purple-500 text-white rounded hover:bg-purple-600">
-                            Yahoo Calendar
-                        </button>
-                        <button onclick="downloadICS(); closeModal()" 
-                                class="w-full p-3 bg-gray-500 text-white rounded hover:bg-gray-600">
-                            تحميل ملف ICS
-                        </button>
-                    </div>
-                    <button onclick="closeModal()" class="w-full mt-4 p-2 border rounded hover:bg-gray-100">
-                        إلغاء
-                    </button>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            
-            window.closeModal = function() {
-                document.body.removeChild(modal);
-                delete window.closeModal;
-                delete window.downloadICS;
-            };
-            
-            window.downloadICS = function() {
-                const icsUrl = generateICSFile(CONFIG.eventData, CONFIG.calendarData);
-                if (icsUrl) {
-                    const link = document.createElement('a');
-                    link.href = icsUrl;
-                    link.download = 'invitation-event.ics';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    showToast('تم تحميل ملف التقويم!', 'success');
-                }
-            };
-        }
-
-        // Share invitation
-        async function shareInvitation() {
-            const shareData = {
-                title: CONFIG.eventData.event_name,
-                text: `${CONFIG.texts.share_invitation} - ${CONFIG.eventData.event_name}`,
-                url: window.location.href
-            };
-
-            try {
-                if (navigator.share) {
-                    await navigator.share(shareData);
-                } else {
-                    await navigator.clipboard.writeText(window.location.href);
-                    showToast('Link copied to clipboard!', 'success');
-                }
-            } catch (error) {
-                console.error('Share Error:', error);
-                fallbackShare();
+        // Preload QR library for better performance
+        function preloadQRLibrary() {
+            if (CONFIG.guestData.status === 'confirmed') {
+                generateQRCode();
             }
         }
 
@@ -1363,14 +997,184 @@ $mysqli->close();
             }
         }
 
+        // Share invitation
+        async function shareInvitation() {
+            const shareData = {
+                title: CONFIG.eventData.event_name,
+                text: `${CONFIG.texts.share_invitation} - ${CONFIG.eventData.event_name}`,
+                url: window.location.href
+            };
+
+            try {
+                if (navigator.share) {
+                    await navigator.share(shareData);
+                } else {
+                    await navigator.clipboard.writeText(window.location.href);
+                    showToast('Link copied to clipboard!', 'success');
+                }
+            } catch (error) {
+                console.error('Share Error:', error);
+                fallbackShare();
+            }
+        }
+
         // Fallback share method
         function fallbackShare() {
             const url = window.location.href;
             navigator.clipboard.writeText(url).then(() => {
                 showToast('Link copied to clipboard!', 'success');
             }).catch(() => {
+                // Final fallback - show URL in prompt
                 prompt('Copy this link:', url);
             });
+        }
+
+        // Enhanced Dynamic Calendar Function - يدعم iOS وAndroid والمتصفحات المختلفة
+        function addToCalendar() {
+            const calendarData = CONFIG.calendarData;
+            const eventData = CONFIG.eventData;
+            
+            // تجهيز بيانات الحدث
+            const title = encodeURIComponent(eventData.event_name || 'Event');
+            const location = encodeURIComponent(eventData.venue_ar || '');
+            const details = encodeURIComponent(eventData.event_paragraph_ar || '');
+            
+            // تجهيز التواريخ
+            const startDate = calendarData.datetime;
+            const endDate = calendarData.end_datetime;
+            
+            // كشف نوع الجهاز والمتصفح
+            const userAgent = navigator.userAgent;
+            const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+            const isAndroid = /Android/.test(userAgent);
+            const isMobile = isIOS || isAndroid;
+            
+            // إنشاء الروابط المختلفة
+            const calendarOptions = {
+                // Google Calendar (الافتراضي للكمبيوتر والأندرويد)
+                google: `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDate}/${endDate}&details=${details}&location=${location}`,
+                
+                // Outlook Calendar
+                outlook: `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${startDate}&enddt=${endDate}&body=${details}&location=${location}`,
+                
+                // Yahoo Calendar
+                yahoo: `https://calendar.yahoo.com/?v=60&view=d&type=20&title=${title}&st=${startDate}&et=${endDate}&desc=${details}&in_loc=${location}`,
+                
+                // iOS Calendar (ics file)
+                ics: generateICSFile(eventData, calendarData)
+            };
+            
+            // اختيار الرابط المناسب حسب الجهاز
+            if (isIOS) {
+                // للأيفون والآيباد - جرب iOS Calendar أولاً
+                const icsUrl = calendarOptions.ics;
+                if (icsUrl) {
+                    // إنشاء ملف ICS وتحميله
+                    const link = document.createElement('a');
+                    link.href = icsUrl;
+                    link.download = 'invitation-event.ics';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('تم إنشاء ملف التقويم! يرجى فتحه من التحميلات.', 'success');
+                } else {
+                    // fallback لـ Google Calendar
+                    window.open(calendarOptions.google, '_blank');
+                }
+            } else if (isAndroid) {
+                // للأندرويد - Google Calendar هو الأفضل
+                window.open(calendarOptions.google, '_blank');
+            } else {
+                // للكمبيوتر - إظهار قائمة خيارات
+                showCalendarOptions(calendarOptions);
+            }
+            
+            showToast('Opening calendar...', 'success');
+        }
+
+        // إنشاء ملف ICS للتقويمات التي تدعمه
+        function generateICSFile(eventData, calendarData) {
+            try {
+                const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                const startDateTime = calendarData.datetime.replace(/[-:]/g, '') + 'Z';
+                const endDateTime = calendarData.end_datetime.replace(/[-:]/g, '') + 'Z';
+                
+                const icsContent = [
+                    'BEGIN:VCALENDAR',
+                    'VERSION:2.0',
+                    'PRODID:-//Dawwaty//Event Invitation//EN',
+                    'BEGIN:VEVENT',
+                    `UID:${CONFIG.guestData.guest_id}@dawwaty.com`,
+                    `DTSTAMP:${now}`,
+                    `DTSTART:${startDateTime}`,
+                    `DTEND:${endDateTime}`,
+                    `SUMMARY:${eventData.event_name || 'Event'}`,
+                    `DESCRIPTION:${eventData.event_paragraph_ar || 'دعوة خاصة'}`,
+                    `LOCATION:${eventData.venue_ar || ''}`,
+                    'STATUS:CONFIRMED',
+                    'END:VEVENT',
+                    'END:VCALENDAR'
+                ].join('\r\n');
+                
+                const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+                return URL.createObjectURL(blob);
+            } catch (error) {
+                console.error('ICS Generation Error:', error);
+                return null;
+            }
+        }
+
+        // إظهار خيارات التقويم للكمبيوتر
+        function showCalendarOptions(options) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
+                    <h3 class="text-lg font-bold mb-4 text-center">اختر التقويم</h3>
+                    <div class="space-y-2">
+                        <button onclick="window.open('${options.google}', '_blank'); closeModal()" 
+                                class="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600">
+                            Google Calendar
+                        </button>
+                        <button onclick="window.open('${options.outlook}', '_blank'); closeModal()" 
+                                class="w-full p-3 bg-blue-600 text-white rounded hover:bg-blue-700">
+                            Outlook Calendar
+                        </button>
+                        <button onclick="window.open('${options.yahoo}', '_blank'); closeModal()" 
+                                class="w-full p-3 bg-purple-500 text-white rounded hover:bg-purple-600">
+                            Yahoo Calendar
+                        </button>
+                        <button onclick="downloadICS(); closeModal()" 
+                                class="w-full p-3 bg-gray-500 text-white rounded hover:bg-gray-600">
+                            تحميل ملف ICS
+                        </button>
+                    </div>
+                    <button onclick="closeModal()" class="w-full mt-4 p-2 border rounded hover:bg-gray-100">
+                        إلغاء
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            window.closeModal = function() {
+                document.body.removeChild(modal);
+                delete window.closeModal;
+                delete window.downloadICS;
+            };
+            
+            window.downloadICS = function() {
+                const icsUrl = generateICSFile(CONFIG.eventData, CONFIG.calendarData);
+                if (icsUrl) {
+                    const link = document.createElement('a');
+                    link.href = icsUrl;
+                    link.download = 'invitation-event.ics';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('تم تحميل ملف التقويم!', 'success');
+                }
+            };
         }
 
         // Open location
@@ -1381,11 +1185,38 @@ $mysqli->close();
             }
         }
 
-        // Preload QR library for better performance
-        function preloadQRLibrary() {
-            if (CONFIG.guestData.status === 'confirmed') {
-                generateQRCode();
-            }
+        // Show toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toast-message');
+            
+            toastMessage.textContent = message;
+            toast.className = `toast ${type === 'error' ? 'error' : ''}`;
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Image handling functions
+        function toggleImageView(img) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            
+            modalImg.src = img.src;
+            modal.classList.add('active');
+            
+            // Prevent body scroll
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeImageModal() {
+            const modal = document.getElementById('imageModal');
+            modal.classList.remove('active');
+            
+            // Restore body scroll
+            document.body.style.overflow = 'auto';
         }
 
         // Close modal with Escape key
