@@ -1,16 +1,76 @@
 <?php
-// v2 rsvp.php - محسّن مع خلفية بيضاء وتقويم ديناميكي
+// last rsvp.php - محسّن لحفلات الزفاف مع العداد التنازلي
 error_reporting(E_ALL & ~E_DEPRECATED);
 ini_set('display_errors', 1);
 
 session_start();
 require_once 'db_config.php';
-require_once 'languages.php'; // استخدام ملف اللغات المنفصل
 
 // --- Language System ---
-handleLanguageSwitch();
-$lang = getCurrentLanguage();
-$t = getPageTexts('rsvp', $lang);
+$lang = $_SESSION['language'] ?? $_COOKIE['language'] ?? 'ar';
+if (isset($_POST['switch_language'])) {
+    $lang = $_POST['switch_language'] === 'en' ? 'en' : 'ar';
+    $_SESSION['language'] = $lang;
+    setcookie('language', $lang, time() + (365 * 24 * 60 * 60), '/');
+    // Redirect to avoid re-posting
+    $redirect_url = $_SERVER['REQUEST_URI'];
+    header("Location: $redirect_url");
+    exit;
+}
+
+// Language texts
+$texts = [
+    'ar' => [
+        'welcome_guest' => 'مرحباً بكم',
+        'dear_guest' => 'ضيفنا الكريم',
+        'guest_count' => 'عدد الضيوف',
+        'table_number' => 'رقم الطاولة',
+        'confirm_attendance' => 'تأكيد الحضور',
+        'decline_attendance' => 'الاعتذار عن الحضور',
+        'add_to_calendar' => 'إضافة للتقويم',
+        'share_invitation' => 'مشاركة الدعوة',
+        'get_directions' => 'الحصول على الاتجاهات',
+        'download_qr' => 'تحميل QR',
+        'entry_card' => 'بطاقة الدخول',
+        'qr_code' => 'رمز الاستجابة السريعة',
+        'show_at_entrance' => 'أظهر هذا الرمز عند الدخول',
+        'already_confirmed' => 'تم تأكيد حضورك بنجاح!',
+        'already_declined' => 'تم تسجيل اعتذارك',
+        'success_confirmed' => 'تم تأكيد حضورك بنجاح!',
+        'success_declined' => 'شكراً لك، تم تسجيل اعتذارك عن الحضور.',
+        'error_occurred' => 'حدث خطأ، يرجى المحاولة مرة أخرى',
+        'invalid_link' => 'رابط الدعوة غير صالح',
+        'csrf_error' => 'خطأ في الحماية، يرجى إعادة تحميل الصفحة',
+        'rate_limit_error' => 'تم إرسال طلبات كثيرة، يرجى الانتظار',
+        'connection_error' => 'خطأ في الاتصال'
+    ],
+    'en' => [
+        'welcome_guest' => 'Welcome',
+        'dear_guest' => 'Dear Guest',
+        'guest_count' => 'Guest Count',
+        'table_number' => 'Table Number',
+        'confirm_attendance' => 'Confirm Attendance',
+        'decline_attendance' => 'Decline Attendance',
+        'add_to_calendar' => 'Add to Calendar',
+        'share_invitation' => 'Share Invitation',
+        'get_directions' => 'Get Directions',
+        'download_qr' => 'Download QR',
+        'entry_card' => 'Entry Card',
+        'qr_code' => 'QR Code',
+        'show_at_entrance' => 'Show this code at entrance',
+        'already_confirmed' => 'Your attendance has been confirmed!',
+        'already_declined' => 'Your decline has been recorded',
+        'success_confirmed' => 'Your attendance has been confirmed successfully!',
+        'success_declined' => 'Thank you, your decline has been recorded.',
+        'error_occurred' => 'An error occurred, please try again',
+        'invalid_link' => 'Invalid invitation link',
+        'csrf_error' => 'Security error, please reload the page',
+        'rate_limit_error' => 'Too many requests, please wait',
+        'connection_error' => 'Connection error'
+    ]
+];
+
+$t = $texts[$lang];
 
 // --- CSRF Protection ---
 if (empty($_SESSION['csrf_token'])) {
@@ -212,7 +272,26 @@ function generateCalendarData($event_data, $lang) {
     ];
 }
 
+function parseEventDate($event_date_text) {
+    // استخراج التاريخ للعداد التنازلي
+    if (preg_match('/(\d{1,2})[\/\-\.\s]+(\d{1,2})[\/\-\.\s]+(\d{4})/', $event_date_text, $matches)) {
+        $day = str_pad($matches[1], 2, '0', STR_PAD_LEFT);
+        $month = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
+        $year = $matches[3];
+        return "$year-$month-$day";
+    } elseif (preg_match('/(\d{4})[\/\-\.\s]+(\d{1,2})[\/\-\.\s]+(\d{1,2})/', $event_date_text, $matches)) {
+        $year = $matches[1];
+        $month = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
+        $day = str_pad($matches[3], 2, '0', STR_PAD_LEFT);
+        return "$year-$month-$day";
+    }
+    
+    // تاريخ افتراضي إذا لم نجد تاريخ محدد
+    return date('Y-m-d', strtotime('+1 week'));
+}
+
 $calendar_data = generateCalendarData($event_data, $lang);
+$event_date_formatted = parseEventDate($event_data['event_date_ar'] ?? '');
 
 $mysqli->close();
 ?>
@@ -221,16 +300,16 @@ $mysqli->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $event_data ? safeHtml($event_data['event_name']) : 'دعوة' ?></title>
+    <title><?= $event_data ? htmlspecialchars($event_data['event_name']) : 'دعوة' ?></title>
     
     <!-- SEO Meta Tags -->
-    <meta name="description" content="<?= safeHtml($event_data['event_paragraph_ar'] ?? 'دعوة خاصة') ?>">
+    <meta name="description" content="<?= htmlspecialchars($event_data['event_paragraph_ar'] ?? 'دعوة خاصة') ?>">
     <meta name="keywords" content="دعوة,حفل,زفاف,invitation,wedding">
     
     <!-- Open Graph Meta Tags -->
-    <meta property="og:title" content="<?= safeHtml($event_data['event_name'] ?? 'دعوة') ?>">
-    <meta property="og:description" content="<?= safeHtml($event_data['event_paragraph_ar'] ?? 'دعوة خاصة') ?>">
-    <meta property="og:image" content="<?= safeHtml($event_data['background_image_url'] ?? '') ?>">
+    <meta property="og:title" content="<?= htmlspecialchars($event_data['event_name'] ?? 'دعوة') ?>">
+    <meta property="og:description" content="<?= htmlspecialchars($event_data['event_paragraph_ar'] ?? 'دعوة خاصة') ?>">
+    <meta property="og:image" content="<?= htmlspecialchars($event_data['background_image_url'] ?? '') ?>">
     
     <!-- Fonts & Styles -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -241,12 +320,13 @@ $mysqli->close();
     <style>
         body { 
             font-family: <?= $lang === 'ar' ? "'Cairo', sans-serif" : "'Inter', sans-serif" ?>; 
-            background: white; /* خلفية بيضاء */
+            background: white;
             min-height: 100vh;
             display: flex; 
             justify-content: center; 
             align-items: center; 
             padding: 20px;
+            color: #000000;
         }
         
         .card-container { 
@@ -268,27 +348,32 @@ $mysqli->close();
         }
         
         .language-toggle button {
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #e5e7eb;
-            padding: 8px 12px;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            color: #374151;
+            color: #2d4a22;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 8px rgba(45, 74, 34, 0.1);
         }
         
         .language-toggle button:hover {
-            background: #f3f4f6;
+            background: rgba(255, 255, 255, 0.95);
             transform: translateY(-1px);
+            border-color: rgba(45, 74, 34, 0.5);
+            color: #1a2f15;
+            box-shadow: 0 4px 12px rgba(45, 74, 34, 0.15);
         }
         
         .description-box {
             padding: 40px 25px;
             background: #f8f9fa;
             text-align: center;
-            color: #374151;
+            color: #000000;
             font-size: 1.1rem;
             line-height: 1.8;
         }
@@ -298,123 +383,196 @@ $mysqli->close();
             background: white;
         }
         
+        /* تصميم الصناديق مثل الأزرار تماماً */
+        .guest-welcome,
+        .countdown-section,
+        .location-card,
+        .qr-code-section,
+        .guest-details {
+            padding: 18px 25px;
+            border-radius: 50px;
+            font-weight: 600;
+            color: #2d4a22;
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(45, 74, 34, 0.1);
+            margin: 20px 0;
+        }
+        
+        .guest-welcome::before,
+        .countdown-section::before,
+        .location-card::before,
+        .qr-code-section::before,
+        .guest-details::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.1), transparent);
+            transition: left 0.6s ease;
+        }
+        
+        .guest-welcome:hover::before,
+        .countdown-section:hover::before,
+        .location-card:hover::before,
+        .qr-code-section:hover::before,
+        .guest-details:hover::before {
+            left: 100%;
+        }
+        
+        .guest-welcome:hover,
+        .countdown-section:hover,
+        .location-card:hover,
+        .qr-code-section:hover,
+        .guest-details:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 8px 25px rgba(45, 74, 34, 0.2);
+            border-color: rgba(45, 74, 34, 0.5);
+            color: #1a2f15;
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
         .guest-welcome {
             text-align: center;
             margin-bottom: 25px;
-            padding: 20px;
-            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
-            border-radius: 15px;
-            border: 1px solid #60a5fa;
+        }
+        
+        .countdown-section {
+            text-align: center;
+        }
+        
+        .countdown-timer {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .countdown-item {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px 8px;
+            border-radius: 25px;
+            backdrop-filter: blur(5px);
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            transition: all 0.3s ease;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            color: #2d4a22;
+        }
+        
+        .countdown-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.05), transparent);
+            transition: left 0.4s ease;
+        }
+        
+        .countdown-item:hover::before {
+            left: 100%;
+        }
+        
+        .countdown-item:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 4px 12px rgba(45, 74, 34, 0.15);
+            border-color: rgba(45, 74, 34, 0.5);
+            background: rgba(255, 255, 255, 0.95);
+            color: #1a2f15;
+        }
+        
+        .countdown-number {
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+            font-weight: bold;
+            display: block;
+            line-height: 1;
+            margin-bottom: 5px;
+            color: inherit;
+        }
+        
+        .countdown-label {
+            font-size: clamp(0.7rem, 2.5vw, 0.85rem);
+            opacity: 0.8;
+            font-weight: 600;
+            text-align: center;
+            color: inherit;
         }
         
         .guest-details {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             gap: 15px;
-            margin: 20px 0;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 12px;
         }
         
         .detail-item {
             text-align: center;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px 10px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 20px;
+            border: 2px solid rgba(45, 74, 34, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            color: #2d4a22;
+        }
+        
+        .detail-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.03), transparent);
+            transition: left 0.3s ease;
+        }
+        
+        .detail-item:hover::before {
+            left: 100%;
+        }
+        
+        .detail-item:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 4px 12px rgba(45, 74, 34, 0.1);
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(45, 74, 34, 0.4);
+            color: #1a2f15;
         }
         
         .detail-label {
             font-size: 0.8rem;
-            color: #6b7280;
-            margin-bottom: 5px;
+            color: inherit;
+            margin-bottom: 8px;
             font-weight: 600;
+            opacity: 0.8;
         }
         
         .detail-value {
             font-weight: bold;
-            color: #374151;
-        }
-        
-        .location-card {
-            padding: 20px;
-            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
-            border-radius: 12px;
-            border: 1px solid #22c55e;
-            margin: 20px 0;
-        }
-        
-        .action-buttons {
-            display: flex;
-            gap: 15px;
-            margin-top: 25px;
-        }
-        
-        .action-buttons button {
-            flex: 1;
-            padding: 15px;
-            border-radius: 12px;
-            font-weight: bold;
-            color: white;
-            border: none;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 16px;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .btn-confirm {
-            background: linear-gradient(135deg, #10b981, #059669);
-        }
-        
-        .btn-decline {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
-        }
-        
-        .action-buttons button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-        }
-        
-        .action-buttons button:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .spinner {
-            display: none;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+            color: inherit;
+            font-size: 1.1rem;
         }
         
         .qr-code-section {
-            background: linear-gradient(135deg, #fef3c7, #fde68a);
-            padding: 30px;
-            display: none;
             text-align: center;
-            border-top: 1px solid #f59e0b;
-        }
-        
-        .qr-code-section.active {
-            display: block;
-            animation: slideDown 0.5s ease-out;
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
+            display: none;
         }
         
         .qr-grid {
@@ -429,11 +587,37 @@ $mysqli->close();
         
         .qr-title-box {
             grid-column: 1 / 4;
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.8);
             padding: 15px;
-            border-radius: 12px;
+            border-radius: 25px;
             text-align: center;
             backdrop-filter: blur(10px);
+            color: #2d4a22;
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .qr-title-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.05), transparent);
+            transition: left 0.4s ease;
+        }
+        
+        .qr-title-box:hover::before {
+            left: 100%;
+        }
+        
+        .qr-title-box:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.95);
+            border-color: rgba(45, 74, 34, 0.5);
+            color: #1a2f15;
         }
         
         .qr-code-container {
@@ -452,6 +636,92 @@ $mysqli->close();
             flex-direction: column;
             align-items: center;
             gap: 10px;
+            color: #2d4a22;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .action-buttons button {
+            flex: 1;
+            padding: 18px 25px;
+            border-radius: 50px;
+            font-weight: 600;
+            color: #2d4a22;
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 16px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(45, 74, 34, 0.1);
+        }
+        
+        .action-buttons button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.1), transparent);
+            transition: left 0.6s ease;
+        }
+        
+        .action-buttons button:hover::before {
+            left: 100%;
+        }
+        
+        .action-buttons button:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 8px 25px rgba(45, 74, 34, 0.2);
+            border-color: rgba(45, 74, 34, 0.5);
+            color: #1a2f15;
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
+        .action-buttons button:active {
+            transform: translateY(-1px) scale(0.98);
+            transition: all 0.1s ease;
+        }
+        
+        .action-buttons button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            background: rgba(200, 200, 200, 0.5);
+            color: #888;
+            border-color: rgba(200, 200, 200, 0.3);
+        }
+        
+        .action-buttons button i {
+            margin-right: 8px;
+            font-size: 18px;
+            transition: transform 0.3s ease;
+        }
+        
+        .action-buttons button:hover i {
+            transform: scale(1.1);
+        }
+        
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            border-radius: 50%;
+            border-top-color: #2d4a22;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         
         .share-buttons {
@@ -463,41 +733,76 @@ $mysqli->close();
         }
         
         .share-button {
-            padding: 10px 15px;
-            border-radius: 8px;
-            border: none;
+            padding: 12px 20px;
+            border-radius: 30px;
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            color: #2d4a22;
             cursor: pointer;
             font-weight: 600;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             font-size: 14px;
             display: flex;
             align-items: center;
             gap: 8px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 3px 12px rgba(45, 74, 34, 0.1);
+        }
+        
+        .share-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(45, 74, 34, 0.05), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .share-button:hover::before {
+            left: 100%;
         }
         
         .share-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 6px 20px rgba(45, 74, 34, 0.15);
+            border-color: rgba(45, 74, 34, 0.5);
+            background: rgba(255, 255, 255, 0.95);
+            color: #1a2f15;
         }
         
-        .btn-calendar { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
-        .btn-share { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; }
-        .btn-download { background: linear-gradient(135deg, #10b981, #059669); color: white; }
-        .btn-location { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        .share-button:active {
+            transform: translateY(0) scale(0.98);
+            transition: all 0.1s ease;
+        }
+        
+        .share-button i {
+            font-size: 16px;
+            transition: transform 0.3s ease;
+        }
+        
+        .share-button:hover i {
+            transform: scale(1.1) rotate(5deg);
+        }
         
         .toast {
             position: fixed;
             top: 20px;
             right: 20px;
-            background: rgba(16, 185, 129, 0.95);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            border: 2px solid rgba(45, 74, 34, 0.3);
+            color: #2d4a22;
+            padding: 15px 20px;
+            border-radius: 30px;
+            box-shadow: 0 10px 25px rgba(45, 74, 34, 0.2);
             transform: translateX(400px);
             transition: transform 0.3s ease;
             z-index: 1000;
+            font-weight: 600;
         }
         
         .toast.show {
@@ -505,7 +810,9 @@ $mysqli->close();
         }
         
         .toast.error {
-            background: rgba(239, 68, 68, 0.95);
+            background: rgba(255, 240, 240, 0.95);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #dc2626;
         }
         
         .error-container { 
@@ -529,58 +836,20 @@ $mysqli->close();
         
         .event-image {
             width: 100%;
-            height: 300px;
+            height: 350px;
             object-fit: cover;
             object-position: center;
             display: block;
-            cursor: pointer;
-            transition: transform 0.3s ease;
         }
         
-        .event-image:hover {
-            transform: scale(1.02);
+        .qr-code-section.active {
+            display: block;
+            animation: slideDown 0.5s ease-out;
         }
         
-        .image-modal {
-            display: none;
-            position: fixed;
-            z-index: 9999;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            cursor: pointer;
-        }
-        
-        .image-modal.active {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        .image-modal img {
-            max-width: 90%;
-            max-height: 90%;
-            object-fit: contain;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-        
-        .image-modal .close-button {
-            position: absolute;
-            top: 20px;
-            right: 30px;
-            color: white;
-            font-size: 2rem;
-            cursor: pointer;
-            z-index: 10000;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         @media (max-width: 640px) {
@@ -609,6 +878,117 @@ $mysqli->close();
             .qr-code-container {
                 grid-column: 1 / 2;
             }
+            
+            .countdown-timer {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                max-width: 280px;
+            }
+            
+            .countdown-item {
+                min-height: 70px;
+                padding: 12px 6px;
+                border-radius: 20px;
+            }
+            
+            .countdown-number {
+                font-size: clamp(1.2rem, 5vw, 1.8rem);
+            }
+            
+            .countdown-label {
+                font-size: clamp(0.6rem, 3vw, 0.75rem);
+            }
+            
+            .guest-welcome,
+            .countdown-section,
+            .location-card,
+            .qr-code-section,
+            .guest-details {
+                margin: 15px 0;
+                padding: 15px 20px;
+                border-radius: 40px;
+            }
+            
+            .detail-item {
+                padding: 12px 8px;
+                border-radius: 15px;
+            }
+            
+            .detail-value {
+                font-size: 1rem;
+            }
+            
+            .qr-title-box {
+                border-radius: 20px;
+            }
+        }
+        
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .countdown-timer {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                max-width: 350px;
+            }
+            
+            .countdown-item {
+                min-height: 75px;
+                padding: 12px 8px;
+                border-radius: 22px;
+            }
+            
+            .countdown-number {
+                font-size: clamp(1.4rem, 3vw, 2rem);
+            }
+            
+            .countdown-label {
+                font-size: clamp(0.65rem, 2vw, 0.8rem);
+            }
+            
+            .guest-welcome,
+            .countdown-section,
+            .location-card,
+            .qr-code-section,
+            .guest-details {
+                border-radius: 45px;
+            }
+            
+            .qr-title-box {
+                border-radius: 22px;
+            }
+        }
+        
+        @media (min-width: 1025px) {
+            .countdown-timer {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 15px;
+                max-width: 400px;
+            }
+            
+            .countdown-item {
+                min-height: 85px;
+                padding: 15px 10px;
+                border-radius: 25px;
+            }
+            
+            .countdown-number {
+                font-size: 2.2rem;
+            }
+            
+            .countdown-label {
+                font-size: 0.85rem;
+            }
+            
+            .guest-welcome,
+            .countdown-section,
+            .location-card,
+            .qr-code-section,
+            .guest-details {
+                border-radius: 50px;
+            }
+            
+            .qr-title-box {
+                border-radius: 25px;
+            }
         }
     </style>
 </head>
@@ -616,7 +996,12 @@ $mysqli->close();
     <div class="card-container">
         <!-- Language Toggle -->
         <div class="language-toggle">
-            <?= getLanguageToggleButton($lang, $_SESSION['csrf_token']) ?>
+            <form method="POST" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                <button type="submit" name="switch_language" value="<?= $lang === 'ar' ? 'en' : 'ar' ?>">
+                    <?= $lang === 'ar' ? 'English' : 'العربية' ?>
+                </button>
+            </form>
         </div>
 
         <?php if (!empty($error_message)): ?>
@@ -629,31 +1014,55 @@ $mysqli->close();
             </div>
         <?php else: ?>
             
-            <!-- Event Image or Description -->
+            <!-- Event Image -->
             <?php if (!empty($event_data['background_image_url'])): ?>
                 <div class="event-image-container">
-                    <img src="<?= safeHtml($event_data['background_image_url']) ?>" 
-                         alt="<?= safeHtml($event_data['event_name']) ?>" 
+                    <img src="<?= htmlspecialchars($event_data['background_image_url']) ?>" 
+                         alt="<?= htmlspecialchars($event_data['event_name']) ?>" 
                          class="event-image"
-                         loading="lazy"
-                         onclick="toggleImageView(this)">
+                         loading="lazy">
                 </div>
             <?php else: ?>
                 <div class="description-box">
-                    <p><?= nl2br(safeHtml($event_data['event_paragraph_ar'] ?? 'مرحباً بكم في مناسبتنا الخاصة.')) ?></p>
+                    <p><?= nl2br(htmlspecialchars($event_data['event_paragraph_ar'] ?? 'مرحباً بكم في مناسبتنا الخاصة.')) ?></p>
                 </div>
             <?php endif; ?>
 
             <div class="card-content" id="main-content">
                 <!-- Guest Welcome Section -->
                 <div class="guest-welcome">
-                    <h2 class="text-xl font-bold text-blue-800 mb-2">
-                        
+                    <h2 class="text-xl font-bold mb-2">
                         <?= $t['welcome_guest'] ?>
                     </h2>
-                    <p class="text-lg font-semibold text-blue-700">
-                        <?= safeHtml($guest_data['name_ar'] ?? $t['dear_guest']) ?>
+                    <p class="text-lg font-semibold">
+                        <?= htmlspecialchars($guest_data['name_ar'] ?? $t['dear_guest']) ?>
                     </p>
+                </div>
+
+                <!-- Countdown Section -->
+                <div class="countdown-section">
+                    <h3 class="text-lg font-bold mb-2">
+                        <i class="fas fa-calendar-alt"></i>
+                        <?= $lang === 'ar' ? 'العد التنازلي للحفل' : 'Event Countdown' ?>
+                    </h3>
+                    <div class="countdown-timer" id="countdown-timer">
+                        <div class="countdown-item">
+                            <span class="countdown-number" id="days">--</span>
+                            <div class="countdown-label"><?= $lang === 'ar' ? 'يوم' : 'Days' ?></div>
+                        </div>
+                        <div class="countdown-item">
+                            <span class="countdown-number" id="hours">--</span>
+                            <div class="countdown-label"><?= $lang === 'ar' ? 'ساعة' : 'Hours' ?></div>
+                        </div>
+                        <div class="countdown-item">
+                            <span class="countdown-number" id="minutes">--</span>
+                            <div class="countdown-label"><?= $lang === 'ar' ? 'دقيقة' : 'Minutes' ?></div>
+                        </div>
+                        <div class="countdown-item">
+                            <span class="countdown-number" id="seconds">--</span>
+                            <div class="countdown-label"><?= $lang === 'ar' ? 'ثانية' : 'Seconds' ?></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Guest Details -->
@@ -663,7 +1072,7 @@ $mysqli->close();
                             <i class="fas fa-users"></i>
                             <?= $t['guest_count'] ?>
                         </div>
-                        <div class="detail-value"><?= safeHtml($guest_data['guests_count'] ?? '1') ?></div>
+                        <div class="detail-value"><?= htmlspecialchars($guest_data['guests_count'] ?? '1') ?></div>
                     </div>
                     
                     <?php if (!empty($guest_data['table_number'])): ?>
@@ -672,7 +1081,7 @@ $mysqli->close();
                             <i class="fas fa-chair"></i>
                             <?= $t['table_number'] ?>
                         </div>
-                        <div class="detail-value"><?= safeHtml($guest_data['table_number']) ?></div>
+                        <div class="detail-value"><?= htmlspecialchars($guest_data['table_number']) ?></div>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -682,21 +1091,21 @@ $mysqli->close();
                 <div class="location-card">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="font-bold text-green-800 mb-1">
+                            <h3 class="font-bold mb-1">
                                 <i class="fas fa-map-marker-alt"></i>
-                                <?= safeHtml($event_data['venue_ar'] ?? $t['view_location']) ?>
+                                <?= htmlspecialchars($event_data['venue_ar'] ?? 'مكان الحفل') ?>
                             </h3>
                             <?php if (!empty($event_data['event_date_ar'])): ?>
-                            <p class="text-sm text-green-700">
+                            <p class="text-sm">
                                 <i class="fas fa-calendar"></i>
-                                <?= safeHtml($event_data['event_date_ar']) ?>
+                                <?= htmlspecialchars($event_data['event_date_ar']) ?>
                             </p>
                             <?php endif; ?>
                         </div>
                         <?php if (!empty($event_data['Maps_link'])): ?>
-                        <a href="<?= safeHtml($event_data['Maps_link']) ?>" 
+                        <a href="<?= htmlspecialchars($event_data['Maps_link']) ?>" 
                            target="_blank" 
-                           class="text-green-600 hover:text-green-800 transition-colors">
+                           class="hover:opacity-80 transition-colors">
                             <i class="fas fa-external-link-alt text-xl"></i>
                         </a>
                         <?php endif; ?>
@@ -706,14 +1115,14 @@ $mysqli->close();
 
                 <!-- Action Buttons -->
                 <div id="action-buttons-section" class="action-buttons">
-                    <button id="confirm-button" class="btn-confirm" onclick="handleRSVP('confirmed')">
+                    <button id="confirm-button" onclick="handleRSVP('confirmed')">
                         <div class="spinner" id="confirm-spinner"></div>
                         <span id="confirm-text">
                             <i class="fas fa-check"></i>
                             <?= $t['confirm_attendance'] ?>
                         </span>
                     </button>
-                    <button id="cancel-button" class="btn-decline" onclick="handleRSVP('canceled')">
+                    <button id="cancel-button" onclick="handleRSVP('canceled')">
                         <div class="spinner" id="cancel-spinner"></div>
                         <span id="cancel-text">
                             <i class="fas fa-times"></i>
@@ -727,18 +1136,18 @@ $mysqli->close();
                 
                 <!-- Share Buttons -->
                 <div class="share-buttons">
-                    <button onclick="addToCalendar()" class="share-button btn-calendar">
+                    <button onclick="addToCalendar()" class="share-button">
                         <i class="fas fa-calendar-plus"></i>
                         <?= $t['add_to_calendar'] ?>
                     </button>
                     
-                    <button onclick="shareInvitation()" class="share-button btn-share">
+                    <button onclick="shareInvitation()" class="share-button">
                         <i class="fas fa-share-alt"></i>
                         <?= $t['share_invitation'] ?>
                     </button>
                     
                     <?php if (!empty($event_data['Maps_link'])): ?>
-                    <button onclick="openLocation()" class="share-button btn-location">
+                    <button onclick="openLocation()" class="share-button">
                         <i class="fas fa-map-marked-alt"></i>
                         <?= $t['get_directions'] ?>
                     </button>
@@ -750,43 +1159,43 @@ $mysqli->close();
             <div id="qr-code-section" class="qr-code-section">
                 <div class="qr-grid">
                     <div class="qr-title-box">
-                        <h3 class="text-xl font-bold text-amber-800 mb-2">
+                        <h3 class="text-xl font-bold mb-2">
                             <i class="fas fa-qrcode"></i>
-                            <?= safeHtml($event_data['qr_card_title_ar'] ?? $t['entry_card']) ?>
+                            <?= htmlspecialchars($event_data['qr_card_title_ar'] ?? $t['entry_card']) ?>
                         </h3>
-                        <p class="text-sm text-amber-700"><?= $t['qr_code'] ?></p>
+                        <p class="text-sm"><?= $t['qr_code'] ?></p>
                     </div>
                     
                     <div class="qr-info qr-info-left">
                         <div class="text-center">
-                            <div class="text-xs text-gray-600 mb-1"><?= $t['guest_count'] ?></div>
-                            <div class="text-2xl font-bold text-gray-800"><?= safeHtml($guest_data['guests_count'] ?? '1') ?></div>
+                            <div class="text-xs mb-1"><?= $t['guest_count'] ?></div>
+                            <div class="text-2xl font-bold"><?= htmlspecialchars($guest_data['guests_count'] ?? '1') ?></div>
                         </div>
-                        <div class="text-xs text-gray-600 mt-4">
-                            <?= safeHtml($event_data['qr_brand_text_ar'] ?? 'دعواتي') ?>
+                        <div class="text-xs mt-4">
+                            <?= htmlspecialchars($event_data['qr_brand_text_ar'] ?? 'وصول') ?>
                         </div>
                     </div>
                     
                     <div id="qrcode" class="qr-code-container"></div>
                     
                     <div class="qr-info qr-info-right text-center">
-                        <p class="text-sm font-semibold text-gray-700 mb-2">
-                            <?= safeHtml($event_data['qr_show_code_instruction_ar'] ?? $t['show_at_entrance']) ?>
+                        <p class="text-sm font-semibold mb-2">
+                            <?= htmlspecialchars($event_data['qr_show_code_instruction_ar'] ?? $t['show_at_entrance']) ?>
                         </p>
-                        <div class="text-xs text-gray-600">
-                            <?= safeHtml($event_data['qr_website'] ?? 'dawwaty.com') ?>
+                        <div class="text-xs">
+                            <?= htmlspecialchars($event_data['qr_website'] ?? 'wosuol.com') ?>
                         </div>
                     </div>
                 </div>
                 
                 <!-- QR Action Buttons -->
                 <div class="share-buttons mt-6">
-                    <button onclick="downloadQR()" class="share-button btn-download">
+                    <button onclick="downloadQR()" class="share-button">
                         <i class="fas fa-download"></i>
                         <?= $t['download_qr'] ?>
                     </button>
                     
-                    <button onclick="shareQR()" class="share-button btn-share">
+                    <button onclick="shareQR()" class="share-button">
                         <i class="fas fa-share"></i>
                         <?= $t['share_invitation'] ?>
                     </button>
@@ -794,12 +1203,6 @@ $mysqli->close();
             </div>
 
         <?php endif; ?>
-    </div>
-
-    <!-- Image Modal for full screen view -->
-    <div id="imageModal" class="image-modal" onclick="closeImageModal()">
-        <span class="close-button" onclick="closeImageModal()">&times;</span>
-        <img id="modalImage" src="" alt="Full size image">
     </div>
 
     <!-- Toast Notification -->
@@ -816,17 +1219,66 @@ $mysqli->close();
             texts: <?= json_encode($t, JSON_UNESCAPED_UNICODE) ?>,
             lang: '<?= $lang ?>',
             csrfToken: '<?= htmlspecialchars($_SESSION['csrf_token']) ?>',
-            calendarData: <?= json_encode($calendar_data, JSON_UNESCAPED_UNICODE) ?>
+            calendarData: <?= json_encode($calendar_data, JSON_UNESCAPED_UNICODE) ?>,
+            eventDate: '<?= $event_date_formatted ?>'
         };
 
         // Global state
         let qrCodeGenerated = false;
+        let countdownInterval;
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             checkInitialStatus();
             preloadQRLibrary();
+            startCountdown();
         });
+
+        // Countdown Timer Function
+        function startCountdown() {
+            const eventDate = new Date(CONFIG.eventDate + 'T20:00:00'); // افتراض الساعة 8 مساءً
+            
+            function updateCountdown() {
+                const now = new Date().getTime();
+                const timeLeft = eventDate.getTime() - now;
+                
+                if (timeLeft > 0) {
+                    const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+                    
+                    document.getElementById('days').textContent = days.toString().padStart(2, '0');
+                    document.getElementById('hours').textContent = hours.toString().padStart(2, '0');
+                    document.getElementById('minutes').textContent = minutes.toString().padStart(2, '0');
+                    document.getElementById('seconds').textContent = seconds.toString().padStart(2, '0');
+                } else {
+                    // انتهى الوقت
+                    document.getElementById('days').textContent = '00';
+                    document.getElementById('hours').textContent = '00';
+                    document.getElementById('minutes').textContent = '00';
+                    document.getElementById('seconds').textContent = '00';
+                    
+                    clearInterval(countdownInterval);
+                    
+                    // إظهار رسالة انتهاء العد التنازلي
+                    const countdownSection = document.querySelector('.countdown-section');
+                    if (countdownSection) {
+                        countdownSection.innerHTML = `
+                            <h3 class="text-lg font-bold mb-2">
+                                <i class="fas fa-heart"></i>
+                                ${CONFIG.lang === 'ar' ? '🎉 حان وقت الحفل! 🎉' : '🎉 Event Time! 🎉'}
+                            </h3>
+                            <p>${CONFIG.lang === 'ar' ? 'نتمنى لكم وقتاً ممتعاً' : 'Have a wonderful time!'}</p>
+                        `;
+                    }
+                }
+            }
+            
+            // تحديث العداد كل ثانية
+            updateCountdown();
+            countdownInterval = setInterval(updateCountdown, 1000);
+        }
 
         // Check initial guest status
         function checkInitialStatus() {
@@ -844,7 +1296,6 @@ $mysqli->close();
             const confirmBtn = document.getElementById('confirm-button');
             const cancelBtn = document.getElementById('cancel-button');
             const spinner = document.getElementById(status === 'confirmed' ? 'confirm-spinner' : 'cancel-spinner');
-            const text = document.getElementById(status === 'confirmed' ? 'confirm-text' : 'cancel-text');
             
             // Disable buttons and show loading
             confirmBtn.disabled = true;
@@ -892,9 +1343,15 @@ $mysqli->close();
             actionButtons.style.display = 'none';
             
             if (status === 'confirmed') {
-                responseMessage.className = 'mt-6 p-4 rounded-lg text-center font-semibold bg-green-100 text-green-800';
+                responseMessage.className = 'mt-6 p-4 rounded-lg text-center font-semibold';
+                responseMessage.style.background = 'rgba(255, 255, 255, 0.9)';
+                responseMessage.style.backdropFilter = 'blur(10px)';
+                responseMessage.style.border = '2px solid rgba(45, 74, 34, 0.3)';
+                responseMessage.style.borderRadius = '30px';
+                responseMessage.style.color = '#2d4a22';
+                responseMessage.style.boxShadow = '0 4px 15px rgba(45, 74, 34, 0.1)';
                 responseMessage.innerHTML = `
-                    <i class="fas fa-check-circle text-green-600 mr-2"></i>
+                    <i class="fas fa-check-circle mr-2"></i>
                     ${CONFIG.texts.already_confirmed}
                 `;
                 responseMessage.style.display = 'block';
@@ -903,9 +1360,15 @@ $mysqli->close();
                 qrSection.classList.add('active');
                 generateQRCode();
             } else {
-                responseMessage.className = 'mt-6 p-4 rounded-lg text-center font-semibold bg-red-100 text-red-800';
+                responseMessage.className = 'mt-6 p-4 rounded-lg text-center font-semibold';
+                responseMessage.style.background = 'rgba(255, 240, 240, 0.9)';
+                responseMessage.style.backdropFilter = 'blur(10px)';
+                responseMessage.style.border = '2px solid rgba(239, 68, 68, 0.3)';
+                responseMessage.style.borderRadius = '30px';
+                responseMessage.style.color = '#dc2626';
+                responseMessage.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.1)';
                 responseMessage.innerHTML = `
-                    <i class="fas fa-times-circle text-red-600 mr-2"></i>
+                    <i class="fas fa-times-circle mr-2"></i>
                     ${CONFIG.texts.already_declined}
                 `;
                 responseMessage.style.display = 'block';
@@ -1029,70 +1492,52 @@ $mysqli->close();
             });
         }
 
-        // Enhanced Dynamic Calendar Function - يدعم iOS وAndroid والمتصفحات المختلفة
+        // Enhanced Dynamic Calendar Function
         function addToCalendar() {
             const calendarData = CONFIG.calendarData;
             const eventData = CONFIG.eventData;
             
-            // تجهيز بيانات الحدث
             const title = encodeURIComponent(eventData.event_name || 'Event');
             const location = encodeURIComponent(eventData.venue_ar || '');
             const details = encodeURIComponent(eventData.event_paragraph_ar || '');
             
-            // تجهيز التواريخ
             const startDate = calendarData.datetime;
             const endDate = calendarData.end_datetime;
             
-            // كشف نوع الجهاز والمتصفح
             const userAgent = navigator.userAgent;
             const isIOS = /iPad|iPhone|iPod/.test(userAgent);
             const isAndroid = /Android/.test(userAgent);
-            const isMobile = isIOS || isAndroid;
             
-            // إنشاء الروابط المختلفة
             const calendarOptions = {
-                // Google Calendar (الافتراضي للكمبيوتر والأندرويد)
                 google: `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDate}/${endDate}&details=${details}&location=${location}`,
-                
-                // Outlook Calendar
                 outlook: `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${startDate}&enddt=${endDate}&body=${details}&location=${location}`,
-                
-                // Yahoo Calendar
                 yahoo: `https://calendar.yahoo.com/?v=60&view=d&type=20&title=${title}&st=${startDate}&et=${endDate}&desc=${details}&in_loc=${location}`,
-                
-                // iOS Calendar (ics file)
                 ics: generateICSFile(eventData, calendarData)
             };
             
-            // اختيار الرابط المناسب حسب الجهاز
             if (isIOS) {
-                // للأيفون والآيباد - جرب iOS Calendar أولاً
                 const icsUrl = calendarOptions.ics;
                 if (icsUrl) {
-                    // إنشاء ملف ICS وتحميله
                     const link = document.createElement('a');
                     link.href = icsUrl;
                     link.download = 'invitation-event.ics';
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    showToast('تم إنشاء ملف التقويم! يرجى فتحه من التحميلات.', 'success');
+                    showToast('تم إنشاء ملف التقويم!', 'success');
                 } else {
-                    // fallback لـ Google Calendar
                     window.open(calendarOptions.google, '_blank');
                 }
             } else if (isAndroid) {
-                // للأندرويد - Google Calendar هو الأفضل
                 window.open(calendarOptions.google, '_blank');
             } else {
-                // للكمبيوتر - إظهار قائمة خيارات
                 showCalendarOptions(calendarOptions);
             }
             
             showToast('Opening calendar...', 'success');
         }
 
-        // إنشاء ملف ICS للتقويمات التي تدعمه
+        // Generate ICS File
         function generateICSFile(eventData, calendarData) {
             try {
                 const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
@@ -1102,9 +1547,9 @@ $mysqli->close();
                 const icsContent = [
                     'BEGIN:VCALENDAR',
                     'VERSION:2.0',
-                    'PRODID:-//Dawwaty//Event Invitation//EN',
+                    'PRODID:-//Wosuol//Event Invitation//EN',
                     'BEGIN:VEVENT',
-                    `UID:${CONFIG.guestData.guest_id}@dawwaty.com`,
+                    `UID:${CONFIG.guestData.guest_id}@wosuol.com`,
                     `DTSTAMP:${now}`,
                     `DTSTART:${startDateTime}`,
                     `DTEND:${endDateTime}`,
@@ -1124,38 +1569,63 @@ $mysqli->close();
             }
         }
 
-        // إظهار خيارات التقويم للكمبيوتر
+        // Show calendar options for desktop
         function showCalendarOptions(options) {
             const modal = document.createElement('div');
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             modal.innerHTML = `
-                <div class="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
-                    <h3 class="text-lg font-bold mb-4 text-center">اختر التقويم</h3>
-                    <div class="space-y-2">
+                <div class="bg-white p-6 rounded-2xl max-w-sm w-full mx-4 backdrop-blur-lg" style="background: rgba(255, 255, 255, 0.95);">
+                    <h3 class="text-lg font-bold mb-6 text-center" style="color: #2d4a22;">اختر التقويم</h3>
+                    <div class="space-y-3">
                         <button onclick="window.open('${options.google}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                class="calendar-option-btn w-full p-4 rounded-full transition-all duration-300"
+                                style="background: rgba(255, 255, 255, 0.9); border: 2px solid rgba(45, 74, 34, 0.3); color: #2d4a22; font-weight: 600; backdrop-filter: blur(10px);">
+                            <i class="fab fa-google mr-2"></i>
                             Google Calendar
                         </button>
                         <button onclick="window.open('${options.outlook}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                class="calendar-option-btn w-full p-4 rounded-full transition-all duration-300"
+                                style="background: rgba(255, 255, 255, 0.9); border: 2px solid rgba(45, 74, 34, 0.3); color: #2d4a22; font-weight: 600; backdrop-filter: blur(10px);">
+                            <i class="fab fa-microsoft mr-2"></i>
                             Outlook Calendar
                         </button>
                         <button onclick="window.open('${options.yahoo}', '_blank'); closeModal()" 
-                                class="w-full p-3 bg-purple-500 text-white rounded hover:bg-purple-600">
+                                class="calendar-option-btn w-full p-4 rounded-full transition-all duration-300"
+                                style="background: rgba(255, 255, 255, 0.9); border: 2px solid rgba(45, 74, 34, 0.3); color: #2d4a22; font-weight: 600; backdrop-filter: blur(10px);">
+                            <i class="fab fa-yahoo mr-2"></i>
                             Yahoo Calendar
                         </button>
                         <button onclick="downloadICS(); closeModal()" 
-                                class="w-full p-3 bg-gray-500 text-white rounded hover:bg-gray-600">
+                                class="calendar-option-btn w-full p-4 rounded-full transition-all duration-300"
+                                style="background: rgba(255, 255, 255, 0.9); border: 2px solid rgba(45, 74, 34, 0.3); color: #2d4a22; font-weight: 600; backdrop-filter: blur(10px);">
+                            <i class="fas fa-download mr-2"></i>
                             تحميل ملف ICS
                         </button>
                     </div>
-                    <button onclick="closeModal()" class="w-full mt-4 p-2 border rounded hover:bg-gray-100">
+                    <button onclick="closeModal()" 
+                            class="w-full mt-6 p-3 rounded-full transition-all duration-300"
+                            style="background: rgba(240, 240, 240, 0.9); border: 2px solid rgba(150, 150, 150, 0.5); color: #666; font-weight: 600; backdrop-filter: blur(10px);">
                         إلغاء
                     </button>
                 </div>
             `;
             
             document.body.appendChild(modal);
+            
+            // Add hover effects to calendar options
+            const calendarBtns = modal.querySelectorAll('.calendar-option-btn');
+            calendarBtns.forEach(btn => {
+                btn.addEventListener('mouseenter', () => {
+                    btn.style.transform = 'translateY(-2px) scale(1.02)';
+                    btn.style.boxShadow = '0 6px 20px rgba(45, 74, 34, 0.15)';
+                    btn.style.borderColor = 'rgba(45, 74, 34, 0.5)';
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.style.transform = 'translateY(0) scale(1)';
+                    btn.style.boxShadow = 'none';
+                    btn.style.borderColor = 'rgba(45, 74, 34, 0.3)';
+                });
+            });
             
             window.closeModal = function() {
                 document.body.removeChild(modal);
@@ -1199,33 +1669,6 @@ $mysqli->close();
             }, 3000);
         }
 
-        // Image handling functions
-        function toggleImageView(img) {
-            const modal = document.getElementById('imageModal');
-            const modalImg = document.getElementById('modalImage');
-            
-            modalImg.src = img.src;
-            modal.classList.add('active');
-            
-            // Prevent body scroll
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeImageModal() {
-            const modal = document.getElementById('imageModal');
-            modal.classList.remove('active');
-            
-            // Restore body scroll
-            document.body.style.overflow = 'auto';
-        }
-
-        // Close modal with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeImageModal();
-            }
-        });
-
         // Enhanced error handling
         window.addEventListener('error', function(e) {
             console.error('Global Error:', e.error);
@@ -1249,6 +1692,20 @@ $mysqli->close();
             }
         }
 
+        // Cleanup countdown on page unload
+        window.addEventListener('beforeunload', function() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+        });
+
+        // Enhanced security - disable right-click on QR
+        document.addEventListener('contextmenu', function(e) {
+            if (e.target.closest('#qrcode, .qr-code-container')) {
+                e.preventDefault();
+            }
+        });
+
         // Accessibility improvements
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && e.target.tagName === 'BUTTON') {
@@ -1261,13 +1718,6 @@ $mysqli->close();
                     toast.classList.remove('show');
                 }
             }
-        });
-
-        // Enhanced security - disable right-click context menu on sensitive elements
-        document.querySelectorAll('#qrcode, .qr-code-container').forEach(element => {
-            element.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-            });
         });
     </script>
     <?php endif; ?>
