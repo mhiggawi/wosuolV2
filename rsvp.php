@@ -1,5 +1,5 @@
 <?php
-// rsvp.php - محسّن مع خلفية بيضاء وتقويم ديناميكي
+// v2 rsvp.php - محسّن مع خلفية بيضاء وتقويم ديناميكي
 error_reporting(E_ALL & ~E_DEPRECATED);
 ini_set('display_errors', 1);
 
